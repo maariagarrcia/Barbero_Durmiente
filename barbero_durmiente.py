@@ -34,13 +34,15 @@ class ClienteStatus(enum.Enum):
     VOLVERA_OTRO_DIA = 1
     ESPERANDO = 2
     SIENDO_ATENDIDO = 3
+    AFEITADO = 4
 
 
 class Cliente(threading.Thread):
     def __init__(self, client_num, status_changed_callback=None):
         super(Cliente, self).__init__()
-        self.client_num = client_num
-        self.status = ClienteStatus.VOLVERA_OTRO_DIA
+
+        self.client_num: int = client_num
+        self.statu: ClienteStatus = ClienteStatus.VOLVERA_OTRO_DIA
         self.status_changed_callback = status_changed_callback
 
     def __str__(self):
@@ -64,25 +66,33 @@ class SillaBarberoStatus(enum.Enum):
 
 
 class SillaBarbero:
-    def __init__(self, status_changed_callback=None):
+    #  falta sincronizar---> RC
+    def __init__(self, status_changed_callback: SillaBarberoStatus = None):
         self.status = SillaBarberoStatus.LIBRE
-        self.status_changed_callback = status_changed_callback
+        self.cliente: Cliente = None
+        self.status_changed_callback: SillaBarberoStatus = status_changed_callback
 
-    def set_status(self, new_status):
+    def set_status(self, new_status: SillaBarberoStatus):
         self.status = new_status
         if self.status_changed_callback != None:
             self.status_changed_callback(self.status)
 
-    def run(self):
-        # si hay clientes coortar barba
-        # si no hay clientes dormir
-        pass
+    def sentar_cliente(self, cliente: Cliente):
+        self.cliente = cliente
+        cliente.set_status(ClienteStatus.SIENDO_ATENDIDO)
+        self.set_status(SillaBarberoStatus.OCUPADA)
+
+    def cliente_efitado(self):
+        self.set_status(ClienteStatus.AFEITADO)
+        self.cliente = None
+        self.set_status(SillaBarberoStatus.LIBRE)
 
 
 class SalaDeEspera(list):
     def __init__(self, capadidad_maxima: int, new_cliente_callback=None):
         super(list, self).__init__()
         self.new_cliente_callback = new_cliente_callback
+
         self.capacidad_maxima = capadidad_maxima
 
     def is_full(self) -> bool:
@@ -100,7 +110,10 @@ class SalaDeEspera(list):
             return False  # =============>
         self.append(cliente)
         cliente.set_status(ClienteStatus.ESPERANDO)
-        self.new_cliente_callback(cliente, len(self))
+
+        if self.new_cliente_callback != None:
+            self.new_cliente_callback(cliente, len(self))
+
         return True  # =============>
 
 
