@@ -16,7 +16,6 @@ class BarberoStatus(enum.Enum):
 class Barbero(threading.Thread):
     def __init__(self, status_changed_callback=None, sala_espera=None, silla_barbero=None):
         super(Barbero, self).__init__()
-
         self.status = BarberoStatus.DURMIENDO
         self.status_changed_callback = status_changed_callback
         self.sala_espera: SalaDeEspera = sala_espera
@@ -29,7 +28,8 @@ class Barbero(threading.Thread):
 
     def afeitar(self):
         self.status = BarberoStatus.AFEITANDO
-        time.sleep(2)
+        self.silla_barbero.get_cliente().siendo_atentido()
+        time.sleep(2)  # simular afeitado
 
     def dormir(self):
         self.status = BarberoStatus.DURMIENDO
@@ -40,14 +40,12 @@ class Barbero(threading.Thread):
         # algun notify
 
         pass
-    # sobrecarga de metodos
 
-    def atender_cliente(self, cliente):
-        self.silla_barbero.sentar_cliente(cliente)
+    def atender_cliente_silla(self):
         self.afeitar()
-        self.silla_barbero.liberar_silla(cliente)
+        self.silla_barbero.liberar_silla()
 
-    def atender_cliente(self, cliente):
+    def atender_cliente_sala(self):
         cliente = self.sala_espera.siguiente_cliente()
         self.silla_barbero.sentar_cliente(cliente)
         self.afeitar()
@@ -55,10 +53,13 @@ class Barbero(threading.Thread):
 
     def run(self):
         while True:
-            if self.sala_espera.is_empty():
-                self.dormir()
+            # atender cliente directamente
+            if self.silla_barbero.is_ocupada():
+                self.atender_cliente_silla(self.silla_barbero.get_cliente())
+            elif not self.sala_espera.is_empty():
+                self.atender_cliente_sala()
             else:
-                self.atender_cliente()
+                self.dormir()
 
     def is_sleeping(self) -> bool:
         return self.status == BarberoStatus.DURMIENDO
@@ -72,11 +73,12 @@ class ClienteStatus(enum.Enum):
 
 
 class Cliente(threading.Thread):
-    def __init__(self, client_num, barbero: Barbero, status_changed_callback=None):
+    def __init__(self, client_num, barbero: Barbero, silla_barbero, sala_de_espera, status_changed_callback=None):
         super(Cliente, self).__init__()
-
         self.barbero: Barbero = barbero
         self.client_num: int = client_num
+        self.silla_barbero: SillaBarbero = silla_barbero
+        self.sala_de_espera: SalaDeEspera = sala_de_espera
         self.statu: ClienteStatus = ClienteStatus.VOLVERA_OTRO_DIA
         self.status_changed_callback = status_changed_callback
 
@@ -97,16 +99,20 @@ class Cliente(threading.Thread):
     def run(self):
         # if el barbero esta durmiendo
         if self.barbero.is_sleeping():
-            self.siendo_atendido()
-            self.barbero.afeitar()
+            # el barbero esta disponible
+            self.silla_barbero.sentar_cliente(self)
             self.barbero.despertar()
 
-         #    despertar al barbero
-         # elif el barbero esta afeitando
-         #    if la sala de espera no esta llena
-         #        sentar en la sala de espera
-         # else
-         #    si la sala de espera esta llena---> volver otro dia
+        else:
+            # barbero esta trabajando
+            # no s'ha pogut seure
+            if not self.sala_de_espera.sentar_cliente(self):
+                self.set_status(ClienteStatus.VOLVERA_OTRO_DIA)
+        #    if la sala de espera no esta llena
+        #        sentar en la sala de espera
+        # else
+        #    si la sala de espera esta llena---> volver otro dia
+        pass
 
 
 class SillaBarberoStatus(enum.Enum):
@@ -120,6 +126,12 @@ class SillaBarbero:
         self.status = SillaBarberoStatus.LIBRE
         self.cliente: Cliente = None
         self.status_changed_callback: SillaBarberoStatus = status_changed_callback
+
+    def is_ocupada(self) -> bool:
+        return self.status == SillaBarberoStatus.OCUPADA
+
+    def get_cliente(self) -> Cliente:
+        return self.cliente
 
     def set_status(self, new_status: SillaBarberoStatus):
         self.status = new_status
@@ -154,7 +166,7 @@ class SalaDeEspera(list):
             return True  # =============>
         return False
 
-    def nuevo_cliente(self, cliente: Cliente):
+    def sentar_cliente(self, cliente: Cliente) -> bool:
         if self.is_full():
             return False  # =============>
 
