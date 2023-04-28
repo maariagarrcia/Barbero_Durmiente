@@ -1,15 +1,54 @@
-# Barbero -> Thread, Corta el barba o duerme
-# Clientes -> Thread, VOLVERA_OTRO_DIA, ESPERANDO, SIENDO_ATENDIDO
-# Silla Barbero -> Región crítica, Ocupada o libre
-# Sala de espera -> Región crítica, Lista clientes, capacidad máxima
+# BARBERO
+# =======
+#   · Tiene un hilo asociado que modela su comportamiento
+#   · El hilo del barbero no termina.
+#   · Comportamiento:
+#       1) Si hay un cliente en la silla AFEITAR.
+#       2) Si la silla está libre pero hay clientes en la cola
+#          atender el primer cliente de la cola: AFEITAR.
+#       3) Si no hay clientes que atender se pone a DORMIR.
+#   · Para "dormir" usamos un semáforo que no se puede adquirir y
+#     el resultado es que el hilo se bloquea.
+#   · Los clientes para despertarle liberan el semáforo.
+#   · El estado inicial del barbero es DORMIDO
+
+# CLIENTES
+# ========
+#   · Tienen un hilo asociado que modela su comportamiento.
+#   · Comportamiento:
+#       1) El cliente llega a la barberia y mira si hay
+#          gente en la sala de espera.
+#       2) Si NO hay clientes en espera intenta sentarse en la
+#          silla del barbero para ser atendido de inmediato. Esto
+#          es posible si la silla esta libre y en tal caso se sienta
+#          (el hilo finaliza).
+#       3) Llegado a este punto, significa que el cliente no ha
+#          a podido ser atendido de inmediato así que intentará
+#          ponerse en espera ...
+#       4) Si hay espacio en la sala de espera se queda en la sala
+#          (el hilo finaliza)
+#       5) Si no hay espacio decide decide volver otro día y se
+#          marcha (el hilo finaliza).
+#   · Estados del cliente: VOLVERA_OTRO_DIA, ESPERANDO, SIENDO_ATENDIDO
+
+# Silla Barbero
+# =============
+#   · Región crítica
+#   · Puede estar Ocupada o libre
+
+# Sala de espera
+# ==============
+#   · Se podria simular con solo un semáforo pero así es más realista.
+#   · Contiene una lista de clientes.
+#   · Región crítica ya que no se pueden añadir y eliminar clientes a la vez.
+#   · Tiene una capacidad máxima que se establece cuando se crea.
 
 
-import threading 
+import threading
 import enum
-from colorama import  Fore
+from colorama import Fore
 import time
 import random
-
 
 class BarberoStatus(enum.Enum):
     AFEITANDO = 1
@@ -17,8 +56,8 @@ class BarberoStatus(enum.Enum):
 
 
 class Barbero(threading.Thread):
-    def __init__(
-            self, sala_espera, silla_barbero, on_change_callback=None):
+    def __init__(self, sala_espera, silla_barbero, on_change_callback=None):
+        super(Barbero, self).__init__()
 
         self.status: BarberoStatus = BarberoStatus.DURMIENDO
         self.on_change_callback = on_change_callback
@@ -26,25 +65,27 @@ class Barbero(threading.Thread):
         self.silla_barbero: SillaBarbero = silla_barbero
         self.semaforo: threading.Semaphore = threading.Semaphore(0)
 
-        super(Barbero, self).__init__()
-
     def __str__(self) -> str:
         return Fore.LIGHTRED_EX + "BARBERO " + Fore.RESET \
             + self.status.name
 
+    def __set_status(self, new_status):
+        self.status = new_status
+
+        if self.on_change_callback != None:
+            self.on_change_callback(self)
+
     def is_sleeping(self) -> bool:
         return (self.status == BarberoStatus.DURMIENDO)
 
-        return durmiento
-
     def afeitar(self):
-        self.set_status(BarberoStatus.AFEITANDO)
+        self.__set_status(BarberoStatus.AFEITANDO)
         self.silla_barbero.get_cliente().siendo_atendido()
 
         time.sleep(2)  # Simula tiempo de afeitado
 
     def dormir(self):
-        self.set_status(BarberoStatus.DURMIENDO)
+        self.__set_status(BarberoStatus.DURMIENDO)
         self.semaforo.acquire()
 
     def despertar(self):
@@ -59,12 +100,6 @@ class Barbero(threading.Thread):
         self.silla_barbero.sentar_cliente(siguiente_cliente)
         self.afeitar()
         self.silla_barbero.liberar_silla()
-
-    def set_status(self, new_status):
-        self.status = new_status
-
-        if self.on_change_callback != None:
-            self.on_change_callback(self)
 
     def run(self):
         while True:
@@ -84,10 +119,8 @@ class ClienteStatus(enum.Enum):
 
 
 class Cliente(threading.Thread):
-    def __init__(self,
-                 client_num,
-                 barbero: Barbero, silla_barbero, sala_espera,
-                 on_change_callback=None):
+    def __init__(self, client_num, barbero: Barbero, silla_barbero, sala_espera, on_change_callback=None):
+        super(Cliente, self).__init__()
 
         self.client_num: int = client_num
         self.barbero: Barbero = barbero
@@ -96,43 +129,48 @@ class Cliente(threading.Thread):
         self.on_change_callback = on_change_callback
         self.status: ClienteStatus = ClienteStatus.ESPERANDO
 
-        super(Cliente, self).__init__()
-
     def __str__(self) -> str:
         return Fore.LIGHTGREEN_EX + "CLIENTE " + Fore.RESET \
             + str(self.client_num) + " " + \
             self.status.name + Fore.RESET
 
-    def set_status(self, new_status: ClienteStatus):
+    def __set_status(self, new_status: ClienteStatus):
         self.status = new_status
 
         if self.on_change_callback != None:
             self.on_change_callback(self)
 
     def afeitado_finalizado(self):
-        self.set_status(ClienteStatus.AFEITADO)
+        self.__set_status(ClienteStatus.AFEITADO)
 
     def siendo_atendido(self):
-        self.set_status(ClienteStatus.SIENDO_ATENDIDO)
+        self.__set_status(ClienteStatus.SIENDO_ATENDIDO)
 
     def run(self):
-        # Lo primero que hace un cliente es intentar sentarse
-        # en la silla de barbero directamente.
-        # Esto solo lo conseguirá si esta esta libre.
-        if self.silla_barbero.sentar_cliente(self):
-            self.barbero.despertar()
-            # La silla está libre.
-            # En este caso el barbero está disponible y atiende inmediatamente
-            # EL hilo del cliente ya no tiene más que hacer... por lo que
-            # finaliza con el return
-            return
+        # El cliente llega a la barberia y mira si hay
+        # gente en la sala de espera.
+        if self.sala_espera.is_empty():
+            # Si NO hay clientes en espera intenta sentarse en la
+            # silla del barbero para ser atendido de inmediato.
+            if self.silla_barbero.sentar_cliente(self):
+                # La silla esta libre y en tal caso se sienta.
+                # Despierta al barbero y este le atienda de inmediato
+                self.barbero.despertar()
+                return  # El hilo finaliza ====================>
 
-        # Si la silla no está libre es que el barbero está trabajando
-        # Entonces el cliente intenta quedarse en la sala de espera
-        if not self.sala_espera.sentar_cliente(self):
-            # La sala de espera esta al completo por lo que el
-            # cliente tendrá que volver otro dia.
-            self.set_status(ClienteStatus.VOLVERA_OTRO_DIA)
+        # Llegado a este punto, significa que el cliente no ha
+        # a podido ser atendido de inmediato así que intentará
+        # ponerse en espera ...
+        if self.sala_espera.sentar_cliente(self):
+            # Hay espacio en la sala por lo que se queda en cola
+            self.__set_status(ClienteStatus.ESPERANDO)
+            return  # El hilo finaliza ==========================>
+
+        # La sala de espera esta al completo por lo que el
+        # cliente tendrá que volver otro dia.
+        self.__set_status(ClienteStatus.VOLVERA_OTRO_DIA)
+
+        return  # El hilo finaliza ==============================>
 
 
 class SillaBarberoStatus(enum.Enum):
@@ -204,6 +242,7 @@ class SalaDeEspera(list):
         return len(self) == 0
 
     def sentar_cliente(self, cliente: Cliente) -> bool:
+        # Protege la región crítica (la lista de clientes)
         self.semaforo.acquire()
 
         if len(self) >= self.capacidad_maxima:
@@ -212,19 +251,22 @@ class SalaDeEspera(list):
             return False  # ============>
 
         self.append(cliente)
-        cliente.set_status(ClienteStatus.ESPERANDO)
 
         if self.on_change_callback != None:
             self.on_change_callback(self)
 
+        # Libera la región crítica para que otro hilos la puedan usar
         self.semaforo.release()
         return True
 
     def siguiente_cliente(self) -> Cliente:
+        # Protege la región crítica (la lista de clientes)
         self.semaforo.acquire()
-        cliente = self.pop(0)
-        self.semaforo.release()
 
+        cliente = self.pop(0)
+
+        # Libera la región crítica
+        self.semaforo.release()
         return cliente
 
 
@@ -242,17 +284,19 @@ class Barberia():
             self.sala_espera, self.silla_barbero, self.barbero_callback)
 
         self.clientes = []
-        for cliente_numero in range(1, 21):
-            self.clientes.append(
-                Cliente(cliente_numero, self.barbero, self.silla_barbero, self.sala_espera, cliente_callback))
+
+    def nuevo_cliente(self):
+        self.clientes.append(
+            Cliente(len(self.clientes), self.barbero, self.silla_barbero, self.sala_espera, cliente_callback))
+        self.clientes[-1].start()
 
     def start(self):
         # Arrancar el hilo del barbero
         self.barbero.start()
 
-        # Arrancar los hilos de los clientes
-        for cliente in self.clientes:
-            cliente.start()
+        # Crea y arranca 20 clientes
+        for cliente_numero in range(1, 21):
+            self.nuevo_cliente()
 
             # Simulamos que los clientes llegan a la barberia
             # separados por intervalos aleatorios entre 1 y 2 segundos
