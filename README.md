@@ -1,5 +1,6 @@
 # EL BARBERO DURMIENTE
 1) VISUALIZACIÓN EN EL TKINTER
+
 ![image](https://github.com/maariagarrcia/Barbero_Durmiente/assets/93185415/f86a8b92-d345-4f1e-a6ea-0c7c01902d5c)
 
 
